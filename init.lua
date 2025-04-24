@@ -7,7 +7,9 @@ packer.startup(function()
   use("windwp/nvim-autopairs")
   use("Mofiqul/dracula.nvim")
   use("dense-analysis/ale")
+  use("tpope/vim-commentary")
   use("airblade/vim-gitgutter")
+  use("APZelos/blamer.nvim")
   use {
     "nvim-lualine/lualine.nvim",
     requires = { 'nvim-tree/nvim-web-devicons', opt = true }
@@ -49,6 +51,9 @@ packer.startup(function()
 end)
 
 local set = vim.opt
+vim.g.blamer_enabled = true
+vim.g.blamer_delay = 2000
+vim.g.blamer_show_in_insert_modes = 0
 
 set.foldlevel = 99
 set.foldenable = false
@@ -62,6 +67,7 @@ set.hidden = true
 set.inccommand = "split"
 set.mouse = "a"
 set.number = true
+set.relativenumber = true
 set.shiftwidth = 2
 set.smarttab = true
 set.splitbelow = true
@@ -82,7 +88,17 @@ vim.cmd([[
   colorscheme dracula
 ]])
 
-require('lualine').setup()
+require('lualine').setup {
+  options = {
+    theme = 'codedark'
+  },
+  sections = {
+    lualine_a = { 'buffers' },
+    lualine_c = {},
+    lualine_x = {},
+  }
+}
+
 
 require('goto-preview').setup {
   width = 120; -- Width of the floating window
@@ -110,9 +126,7 @@ local opts = { noremap = true, silent = true }
 vim.g.mapleader = "`"
 
 vim.diagnostic.config({
-  float = { source = "always", border = border },
   virtual_text = false,
-  signs = true,
 })
 
 require'nvim-tree'.setup({
@@ -179,18 +193,24 @@ require'nvim-tree'.setup({
   }
 })
 
-vim.cmd([[ autocmd! CursorHold,CursorHoldI * lua vim.diagnostic.open_float(nil, {focus=false})]])
+-- vim.cmd([[ autocmd! CursorHold,CursorHoldI * lua vim.diagnostic.open_float(nil, {focus=false})]])
 
 vim.keymap.set('n', '<leader>f', '<cmd>:NvimTreeToggle<cr>')
 vim.keymap.set('n', '<leader>g', ':Ag<space>')
 vim.keymap.set("n", "<leader>d", "<cmd>lua require('goto-preview').goto_preview_definition()<CR>", {noremap=true})
+vim.keymap.set("n", "<leader>D", function()
+  require("goto-preview").goto_preview_definition()
+  vim.defer_fn(function()
+    vim.cmd("wincmd T") -- move janela atual (preview) para nova aba
+  end, 100)
+end, { noremap = true, silent = true })
 
 vim.g.ale_linters = {
    python = {'flake8'}
 }
 
 vim.g.ale_set_balloons = 0
-
+vim.g.ale_virtualtext_cursor = 0
 vim.g.ale_python_flake8_options = '--max-line-length=79 --extend-ignore=E203'
 
 vim.g.python3_host_prog="/Users/jusbrasil/.pyenv/shims/python3"
@@ -212,18 +232,14 @@ local on_attach = function(_, bufnr)
 	nmap("<leader>ca", vim.lsp.buf.code_action, "[C]ode [A]ction")
 
 	nmap("gd", vim.lsp.buf.definition, "[G]oto [D]efinition")
-	nmap("gr", require("telescope.builtin").lsp_references, "[G]oto [R]eferences")
 	nmap("gI", vim.lsp.buf.implementation, "[G]oto [I]mplementation")
 	nmap("<leader>D", vim.lsp.buf.type_definition, "Type [D]efinition")
-	nmap("<leader>ds", require("telescope.builtin").lsp_document_symbols, "[D]ocument [S]ymbols")
-	nmap("<leader>ws", require("telescope.builtin").lsp_dynamic_workspace_symbols, "[W]orkspace [S]ymbols")
 
 	-- See `:help K` for why this keymap
 	nmap("K", vim.lsp.buf.hover, "Hover Documentation")
 	nmap("<C-k>", vim.lsp.buf.signature_help, "Signature Documentation")
 
 	-- Lesser used LSP functionality
-	nmap("gD", vim.lsp.buf.declaration, "[G]oto [D]eclaration")
 	nmap("<leader>wa", vim.lsp.buf.add_workspace_folder, "[W]orkspace [A]dd Folder")
 	nmap("<leader>wr", vim.lsp.buf.remove_workspace_folder, "[W]orkspace [R]emove Folder")
 	nmap("<leader>wl", function()
@@ -344,5 +360,11 @@ cmp.setup {
 
 vim.opt.updatetime = 100
 
-
-
+vim.api.nvim_create_autocmd({"CursorHold"}, {
+  pattern = "*",
+  callback = function()
+    vim.defer_fn(function()
+      vim.diagnostic.open_float(nil, { focus = false, scope = "cursor" })
+  end, 500)
+  end,
+})
