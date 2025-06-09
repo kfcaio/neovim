@@ -35,12 +35,12 @@ packer.startup(function()
     config = function()
     require('goto-preview').setup {}
     end
-  } 
+  }
   use({
     "junegunn/fzf.vim",
     requires = { "junegunn/fzf", run = ":call fzf#install()" }
  })
- use {
+  use {
   'Exafunction/codeium.vim',
   config = function ()
     vim.keymap.set('i', '<leader>n', function() return vim.fn['codeium#CycleCompletions'](1) end, { expr = true, silent = true })
@@ -192,7 +192,52 @@ require'nvim-tree'.setup({
 -- vim.cmd([[ autocmd! CursorHold,CursorHoldI * lua vim.diagnostic.open_float(nil, {focus=false})]])
 
 vim.keymap.set('n', '<leader>f', '<cmd>:NvimTreeToggle<cr>')
-vim.keymap.set('n', '<leader>g', ':Ag<space>')
+
+-- ~/.config/nvim/init.lua  -----------------------------------------------
+-- Reimplementa :Ag aceitando qualquer combinação de FLAGS + PADRÃO,
+-- espelhando a sintaxe da linha de comando “ag [flags] <pattern> [path]”.
+-- Usa fzf#vim#grep() porque é o *wrapper* mais flexível.
+
+-- Pequeno utilitário para converter a lista de args em string segura
+local function shell_escape(str)
+  -- A função fzf#shellescape faz exatamente isso no lado Vim-script.
+  return vim.fn["fzf#shellescape"](str)
+end
+
+local function build_ag_cmd(opts)
+  -- opts.args: string com tudo que o usuário digitou após :Ag
+  -- Ex.: "--hidden --ignore vendor foo"
+  -- Não tentamos reorganizar nada, só prefixamos nossas opções padrão.
+  local default = "--nogroup --column --color --line-number --smart-case"
+  return ("ag %s %s"):format(default, opts.args)
+end
+
+local function ag_with_flags(opts)
+  -- 1. Monta a linha de comando
+  local cmd = build_ag_cmd(opts)
+
+  -- 2. Abre fzf com pré-visualização (usa preview.sh do plugin)
+  local spec = vim.fn["fzf#vim#with_preview"]()
+
+  -- 3. Chama o wrapper de grep; o terceiro argumento indica fullscreen (!)
+  vim.fn["fzf#vim#grep"](cmd, spec, opts.bang and 1 or 0)
+end
+
+-- Cria (ou sobrescreve) o comando :Ag
+vim.api.nvim_create_user_command(
+  "Ag",
+  ag_with_flags,
+  {
+    bang = true,         -- permite :Ag! para fullscreen
+    nargs = "*",         -- aceita 0 ou mais argumentos
+    complete = "file",   -- completa arquivos/caminhos
+  }
+)
+-- -----------------------------------------------------------------------
+
+
+
+
 vim.keymap.set("n", "<leader>d", "<cmd>lua require('goto-preview').goto_preview_definition()<CR>", {noremap=true})
 vim.keymap.set("n", "<leader>D", function()
   require("goto-preview").goto_preview_definition()
@@ -274,6 +319,7 @@ local servers = {
 			mode = "location",
 		},
 	},
+  ts_ls = {},
 	bashls = {},
 	cssls = {},
 	html = {},
@@ -349,7 +395,10 @@ cmp.setup {
         end, { 'i', 's' }),
     }),
     sources = {
+        { name = "supermaven" },
         { name = 'nvim_lsp' },
     },
 }
 
+-- Cola com indentação corrigida
+vim.keymap.set("n", "p", "p=`]", { noremap = true, silent = true })
