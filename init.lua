@@ -2,11 +2,27 @@ local packer = require("packer")
 
 vim.cmd([[packadd packer.nvim]])
 
-packer.startup(function()
+packer.startup(function(use)
+  use({
+    "mfussenegger/nvim-lint",
+  })
+  use({
+    "rshkarin/mason-nvim-lint",
+    after = { "mason.nvim", "nvim-lint" },
+  })
+  use({
+    "ibhagwan/fzf-lua",
+    requires = { "nvim-tree/nvim-web-devicons" },
+  })
   use("wbthomason/packer.nvim")
+  use({
+    "zbirenbaum/copilot-cmp",
+    config = function()
+      require("copilot_cmp").setup()
+    end,
+  })
   use("windwp/nvim-autopairs")
   use("Mofiqul/dracula.nvim")
-  use("dense-analysis/ale")
   use("tpope/vim-commentary")
   use("airblade/vim-gitgutter")
   use("APZelos/blamer.nvim")
@@ -16,16 +32,43 @@ packer.startup(function()
   }
   use("tpope/vim-fugitive")
   use({
-		"neovim/nvim-lspconfig",
-		requires = {
-			"williamboman/mason.nvim",
-			"williamboman/mason-lspconfig.nvim",
-		},
-	})
+    "roobert/search-replace.nvim",
+    config = function()
+      require("search-replace").setup({
+        -- optionally override defaults
+        default_replace_single_buffer_options = "gcI",
+        default_replace_multi_buffer_options = "egcI",
+      })
+    end,
+  })
+  use({
+    "williamboman/mason.nvim",
+    config = function()
+      require("mason").setup()
+    end,
+  })
+  use({
+    "williamboman/mason-lspconfig.nvim",
+    after = { "mason.nvim" },
+    config = function()
+      local status, mason_lspconfig = pcall(require, "mason-lspconfig")
+      if not status then
+        return
+      end
+      -- usar apenas ensure_installed, não chama automatic_enable
+      mason_lspconfig.setup({
+        ensure_installed = { "pyright" }
+      })
+    end,
+  })
+  use({
+    "neovim/nvim-lspconfig",
+    after = { "mason-lspconfig.nvim" },
+  })
   use("hrsh7th/nvim-cmp")
   use("hrsh7th/cmp-nvim-lsp")
   use({
-  "kyazdani42/nvim-tree.lua",
+  "nvim-tree/nvim-tree.lua",
    requires = {
     "kyazdani42/nvim-web-devicons",
    },
@@ -36,18 +79,23 @@ packer.startup(function()
     require('goto-preview').setup {}
     end
   }
-  use({
-    "junegunn/fzf.vim",
-    requires = { "junegunn/fzf", run = ":call fzf#install()" }
- })
   use {
-  'Exafunction/codeium.vim',
-  config = function ()
-    vim.keymap.set('i', '<leader>n', function() return vim.fn['codeium#CycleCompletions'](1) end, { expr = true, silent = true })
-    vim.keymap.set('i', '<leader>p', function() return vim.fn['codeium#CycleCompletions'](-1) end, { expr = true, silent = true })
-    vim.keymap.set('i', '<leader>x', function() return vim.fn['codeium#Clear']() end, { expr = true, silent = true })
-  end
-}
+    'azorng/goose.nvim',
+    requires = {
+      'nvim-lua/plenary.nvim',
+      {
+        'MeanderingProgrammer/render-markdown.nvim',
+        config = function()
+          require('render-markdown').setup({
+            anti_conceal = { enabled = false },
+          })
+        end,
+      }
+    },
+    config = function()
+      require('goose').setup({})
+    end,
+  }
 end)
 
 local set = vim.opt
@@ -122,7 +170,21 @@ require('goto-preview').setup {
 vim.g.mapleader = "`"
 
 vim.diagnostic.config({
+  float = {
+    source = "always",
+    format = function(diagnostic)
+      return string.format(
+        "%s (%s) [%s]",
+        diagnostic.message,
+        diagnostic.code or "",
+        diagnostic.source
+      )
+    end,
+  },
   virtual_text = false,
+  signs = true,
+  underline = true,
+  update_in_insert = false,
 })
 
 require'nvim-tree'.setup({
@@ -224,15 +286,15 @@ local function ag_with_flags(opts)
 end
 
 -- Cria (ou sobrescreve) o comando :Ag
-vim.api.nvim_create_user_command(
-  "Ag",
-  ag_with_flags,
-  {
-    bang = true,         -- permite :Ag! para fullscreen
-    nargs = "*",         -- aceita 0 ou mais argumentos
-    complete = "file",   -- completa arquivos/caminhos
-  }
-)
+-- vim.api.nvim_create_user_command(
+--   "Ag",
+--   ag_with_flags,
+--   {
+--     bang = true,         -- permite :Ag! para fullscreen
+--     nargs = "*",         -- aceita 0 ou mais argumentos
+--     complete = "file",   -- completa arquivos/caminhos
+--   }
+-- )
 -- -----------------------------------------------------------------------
 
 
@@ -245,14 +307,6 @@ vim.keymap.set("n", "<leader>D", function()
     vim.cmd("wincmd T") -- move janela atual (preview) para nova aba
   end, 100)
 end, { noremap = true, silent = true })
-
-vim.g.ale_linters = {
-   python = {'flake8'}
-}
-
-vim.g.ale_set_balloons = 0
-vim.g.ale_virtualtext_cursor = 0
-vim.g.ale_python_flake8_options = '--max-line-length=79 --extend-ignore=E203'
 
 vim.g.python3_host_prog="/Users/jusbrasil/.pyenv/shims/python3"
 
@@ -292,6 +346,7 @@ end
 
 local servers = {
 	pyright = {},
+
 	eslint = {
 		codeAction = {
 			disableRuleComment = {
@@ -340,21 +395,14 @@ local servers = {
 -- MASON.NVIM
 require("mason").setup()
 
--- MASON-LSPCONFIG.NVIM
-local mason_lspconfig = require("mason-lspconfig")
-mason_lspconfig.setup({
-	ensure_installed = vim.tbl_keys(servers),
-})
+-- Force all LSP servers to agree on position encoding (UTF-8) to avoid
+-- the "buffers attached to multiple clients with different position encodings" warning.
+-- We patch the capabilities once and also patch pyright explicitly because it
+-- still advertises UTF-16 by default.
+local lsp_capabilities = require('cmp_nvim_lsp').default_capabilities()
 
-mason_lspconfig.setup_handlers({
-	function(server_name)
-		require("lspconfig")[server_name].setup({
-			capabilities = capabilities,
-			on_attach = on_attach,
-			settings = servers[server_name],
-		})
-	end,
-})
+-- MASON-LSPCONFIG.NVIM
+local capabilities = lsp_capabilities
 
 vim.opt.updatetime = 100
 
@@ -367,38 +415,67 @@ vim.api.nvim_create_autocmd({"CursorHold"}, {
   end,
 })
 
-local capabilities = require('cmp_nvim_lsp').default_capabilities()
+local capabilities = lsp_capabilities
 local cmp = require 'cmp'
-cmp.setup {
-    capabilities = capabilities,
-    mapping = cmp.mapping.preset.insert({
-        ['<C-d>'] = cmp.mapping.scroll_docs(-4),
-        ['<C-f>'] = cmp.mapping.scroll_docs(4),
-        ['<C-Space>'] = cmp.mapping.complete(),
-        ['<CR>'] = cmp.mapping.confirm {
-            behavior = cmp.ConfirmBehavior.Replace,
-            select = true,
-        },
-        ['<C-t>'] = cmp.mapping(function(fallback)
-            if cmp.visible() then
-                cmp.select_next_item()
-            else
-                fallback()
-            end
-        end, { 'i', 's' }),
-        ['<C-k>'] = cmp.mapping(function(fallback)
-            if cmp.visible() then
-                cmp.select_prev_item()
-            else
-                fallback()
-            end
-        end, { 'i', 's' }),
-    }),
-    sources = {
-        { name = "supermaven" },
-        { name = 'nvim_lsp' },
-    },
-}
 
--- Cola com indentação corrigida
-vim.keymap.set("n", "p", "p=`]", { noremap = true, silent = true })
+cmp.setup({
+  mapping = {
+    -- <C-r> aceita a sugestão selecionada
+    ['<C-r>'] = cmp.mapping.confirm({ select = true }),
+    ['<C-Space>'] = cmp.mapping.complete(),  -- força a abertura da seleção (opcional)
+    ['<Down>'] = cmp.mapping.select_next_item(),
+    ['<Up>']   = cmp.mapping.select_prev_item(),
+    ['<C-n>'] = cmp.mapping.select_next_item(),
+    ['<C-p>'] = cmp.mapping.select_prev_item(),
+    ['<C-d>'] = cmp.mapping.scroll_docs(-4),
+    ['<C-f>'] = cmp.mapping.scroll_docs(4),
+  },
+  -- Sugestões aparecem automaticamente
+  completion = {
+    autocomplete = { require('cmp.types').cmp.TriggerEvent.TextChanged },
+  },
+  sources = {
+    { name = "nvim_lsp" },
+    { name = "buffer" },
+    { name = "path" },
+    -- Se quiser sugestões na command-line do vim:
+    { name = "cmdline" },
+    -- Outras fontes opcionais, se usar:
+    { name = "copilot" },
+    { name = "supermaven" },
+  },
+  -- Caso queira menu mesmo sem seleção
+  experimental = {
+    ghost_text = false,
+  },
+  preselect = cmp.PreselectMode.None,  -- não seleciona automaticamente
+})
+
+if vim.fn.exists(':Troubles') == 0 then
+  vim.api.nvim_create_user_command('Troubles', function()
+    vim.diagnostic.setloclist({ open = false })
+    vim.cmd('lopen')        -- abre a location-list logo em seguida
+  end, { desc = 'Abre a location-list com os diagnostics do buffer' })
+end
+
+local opts = {}
+vim.api.nvim_set_keymap("v", "<C-r>", "<CMD>SearchReplaceSingleBufferVisualSelection<CR>", opts)
+vim.api.nvim_set_keymap("v", "<C-s>", "<CMD>SearchReplaceWithinVisualSelection<CR>", opts)
+vim.api.nvim_set_keymap("v", "<C-b>", "<CMD>SearchReplaceWithinVisualSelectionCWord<CR>", opts)
+
+vim.api.nvim_set_keymap("n", "<leader>rs", "<CMD>SearchReplaceSingleBufferSelections<CR>", opts)
+vim.api.nvim_set_keymap("n", "<leader>ro", "<CMD>SearchReplaceSingleBufferOpen<CR>", opts)
+vim.api.nvim_set_keymap("n", "<leader>rw", "<CMD>SearchReplaceSingleBufferCWord<CR>", opts)
+vim.api.nvim_set_keymap("n", "<leader>rW", "<CMD>SearchReplaceSingleBufferCWORD<CR>", opts)
+vim.api.nvim_set_keymap("n", "<leader>re", "<CMD>SearchReplaceSingleBufferCExpr<CR>", opts)
+vim.api.nvim_set_keymap("n", "<leader>rf", "<CMD>SearchReplaceSingleBufferCFile<CR>", opts)
+
+vim.api.nvim_set_keymap("n", "<leader>rbs", "<CMD>SearchReplaceMultiBufferSelections<CR>", opts)
+vim.api.nvim_set_keymap("n", "<leader>rbo", "<CMD>SearchReplaceMultiBufferOpen<CR>", opts)
+vim.api.nvim_set_keymap("n", "<leader>rbw", "<CMD>SearchReplaceMultiBufferCWord<CR>", opts)
+vim.api.nvim_set_keymap("n", "<leader>rbW", "<CMD>SearchReplaceMultiBufferCWORD<CR>", opts)
+vim.api.nvim_set_keymap("n", "<leader>rbe", "<CMD>SearchReplaceMultiBufferCExpr<CR>", opts)
+vim.api.nvim_set_keymap("n", "<leader>rbf", "<CMD>SearchReplaceMultiBufferCFile<CR>", opts)
+
+-- show the effects of a search / replace in a live preview window
+vim.o.inccommand = "split"
